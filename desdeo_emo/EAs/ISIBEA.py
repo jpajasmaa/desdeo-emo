@@ -7,6 +7,11 @@ from desdeo_emo.EAs.BaseIndicatorEA import BaseIndicatorEA
 from desdeo_tools.utilities.quality_indicator import preference_indicator 
 from desdeo_problem import MOProblem
 
+from desdeo_tools.utilities import fast_non_dominated_sort, fast_non_dominated_sort_indices
+
+
+import hvwfg as hv
+
 
 """
     SIBEA algo notes
@@ -41,6 +46,11 @@ from desdeo_problem import MOProblem
 
 """
 
+# dis needs to be able to calculate the loss too
+def hypervolume(obj, ref):
+    return hv.wfg(obj, ref)
+
+
 def weakly_dominates(v1, v2):
     pass 
 
@@ -58,6 +68,40 @@ def weighted_hv_indicator():
 
 
 
+"""
+    I-SIBEA can do a-priori, interactive and post-eriori. I guess lets start with post-eriori and worry rest laterself.
+    - a priori means we interact once with the problem, interactive is that we interact x times, x is what Dm decides
+    - post-eriori is no interactions..
+
+    NP =  pop size
+
+    DA = max number of sols to be shown to DM (default 5)
+    AA, RA == preferred and non-preferred sols after interaction (a-priori and interactive)
+    H = max number of interactions (0 for post-eriori)
+
+
+    Create pop, 
+    do crossover and mutation to offspring Q
+    COmbine P : P + Q, select to NP with enviromental selection
+    do nondom sorting, add to P1 until P1 size is NP. Set P : P1 for next gen.
+        - otherwise the set with worst rank in P1 is denoted P'. 
+            Use hv selection for each z in P', the loss in the 
+            hv d(z) = I(P') - I(P´ \ z) is determined. I is weighted hv indicator. Solution with the smallest loss
+            is removed until the size of the pop does no longer exceed NP, then set P: P1.
+    
+    After fixed number of gens the interactions
+    Step 5 show DA solutions to dm. ( so eg. clustering)
+    Then final solution we optimize ASF.
+
+    
+    OK:
+    TODO: find out how to do
+     issue with baseEAs _next_gen with enviromental selection and using the worst index as means to removing from pop.
+    -ISIBEA has different ways of doing this but BaseIndicatorEA does not have the way of doing this. 
+
+    Also not 100 sure but does fitness assignment come different place in ISIBEA ?
+
+"""
 
 
 class ISIBEA(BaseIndicatorEA):
@@ -111,18 +155,17 @@ class ISIBEA(BaseIndicatorEA):
     def __init__(self,
         problem: MOProblem,
         population_size: int,
-        initial_population: Population,
+        initial_population: Population = None,
         a_priori: bool = False,
         interact: bool = False,
         n_iterations: int = 10,
         n_gen_per_iter: int = 100,
         total_function_evaluations: int = 0,
         use_surrogates: bool = False,
-        kappa: float = 0.05,
-        indicator: Callable = weighted_hv_indicator,
+        #indicator: Callable = weighted_hv_indicator,
+        indicator: Callable = hypervolume,
+        da: int = 5,
         population_params: Dict = None,
-        reference_point = None,
-        delta: float = 0.1, 
         ):
         super().__init__(
             problem=problem,
@@ -137,12 +180,53 @@ class ISIBEA(BaseIndicatorEA):
             use_surrogates=use_surrogates,
         )
 
-        self.kappa = kappa
-        self.delta = delta
         self.indicator = indicator
-        self.reference_point = reference_point
         selection_operator = TournamentSelection(self.population, 2)
         self.selection_operator = selection_operator
+
+
+    # override baseindiea
+    def _next_gen(self):
+        # step 2. Mating. 
+        offspring = self.population.mate()
+        # add works great
+        self.population.add(offspring)
+        #print(self.population.pop_size)
+        #print(self.population.individuals.shape[0])
+        
+        # step 3. enviromental selection
+        fronts_indices = fast_non_dominated_sort_indices(self.population.objectives)
+        # not sure which i ll use
+        fronts = fast_non_dominated_sort(self.population.objectives)
+        
+        # add pop to P1 until |P1| >= pop.size
+        P1 = 0
+        #for f in fronts:
+        Fi_num = fronts.shape[0]  
+
+        self.fitnesses = self.population.objectives
+        loss = np.zeros(20)
+        # compute Hv indicator values 
+        ref = np.array([5.0,5.0,5.0])
+        fitness = np.ma.array(self.fitnesses, mask=False)
+        # this mess actually might be ok. does step 3,c.
+        for i in range(20):
+            fitness.mask[i] = True
+            loss[i] = hypervolume(self.fitnesses, ref) - hypervolume(fitness, ref)
+            fitness.mask[i] = False
+
+        print(loss)
+
+        input()
+
+        self._current_gen_count += 1
+        self._gen_count_in_curr_iteration += 1
+        self._function_evaluation_count += offspring.shape[0]
+
+    
+    # override baseindiea
+    def _select(self):
+        pass
 
 
     def _fitness_assignment(self, fitnesses):
@@ -161,3 +245,30 @@ class ISIBEA(BaseIndicatorEA):
         """
         pass 
 
+
+
+if __name__=="__main__":
+    print("ISIBEA")
+    from desdeo_problem import MOProblem
+    import matplotlib.pyplot as plt
+    from desdeo_problem.testproblems.TestProblems import test_problem_builder
+
+    # start the problem
+    problem_name = "DTLZ4"
+    problem = test_problem_builder(problem_name, n_of_variables=5, n_of_objectives=3)
+
+    weights = [1,1,1]
+
+    isibea = ISIBEA(problem, population_size=10, n_iterations=1, n_gen_per_iter=50,total_function_evaluations=1000, da=5 )
+    while isibea.continue_evolution():
+        isibea.iterate()
+    individuals, objective_values = isibea.end()
+    print("IBEA ideal",isibea.population.problem.ideal)
+    plt.scatter(x=objective_values[:,0], y=objective_values[:,1], label="IBEA Front")
+    plt.title(f"IBEA approximation")
+    plt.xlabel("F1")
+    plt.ylabel("F2")
+    plt.legend()
+    #plt.show()
+    # need to get the population
+    #ini_pop = ib.population # so pbea doesn't get only the non dom pop members, and popsize stays the same
