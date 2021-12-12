@@ -68,6 +68,7 @@ def weighted_hv_indicator():
 
 
 
+
 """
     I-SIBEA can do a-priori, interactive and post-eriori. I guess lets start with post-eriori and worry rest laterself.
     - a priori means we interact once with the problem, interactive is that we interact x times, x is what Dm decides
@@ -197,31 +198,56 @@ class ISIBEA(BaseIndicatorEA):
         # step 3. enviromental selection
         fronts_indices = fast_non_dominated_sort_indices(self.population.objectives)
         # not sure which i ll use
-        fronts = fast_non_dominated_sort(self.population.objectives)
+        #fronts = fast_non_dominated_sort(self.population.objectives)
         
         # add pop to P1 until |P1| >= pop.size
-        P1 = 0
-        #for f in fronts:
-        Fi_num = fronts.shape[0]  
+        # is cool but matlab code seems not to care about this
+        P1 = self.add_to_P1(fronts_indices)
+        #print(P1)
+        #if len(P1) == NP
 
         self.fitnesses = self.population.objectives
         loss = np.zeros(20)
         # compute Hv indicator values 
         ref = np.array([5.0,5.0,5.0])
         fitness = np.ma.array(self.fitnesses, mask=False)
+        # what i was doing with the masks ?
         # this mess actually might be ok. does step 3,c.
         for i in range(20):
             fitness.mask[i] = True
-            loss[i] = hypervolume(self.fitnesses, ref) - hypervolume(fitness, ref)
+            lossval = hypervolume(self.fitnesses, ref) - hypervolume(fitness, ref)
+            #if lossval == # could do check for too small values and make them to be say 0.0001 etc. do it if overflow/underflow errors
+            loss[i] = lossval
             fitness.mask[i] = False
 
         print(loss)
+        #NoN = 
+
 
         input()
 
         self._current_gen_count += 1
         self._gen_count_in_curr_iteration += 1
         self._function_evaluation_count += offspring.shape[0]
+
+    # this should work good enough for the step 3a.
+    def add_to_P1(self, fronts):
+        NP = 10
+        P1 = []
+        i=0 
+        P_idx = []
+        while len(P1) < NP and i <= len(fronts):    
+            vals = fronts[i] # get Fi
+            sols = vals[0][0:]
+            P_idx.append(sols) # set front idxes to P1idx
+            
+            for j in sols:
+                P1.append(self.population.objectives[j])
+            i += 1
+        
+        P1 = np.stack(P1) # to return as 1 2d arr
+        return P1
+
 
     
     # override baseindiea
