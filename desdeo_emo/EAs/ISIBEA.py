@@ -184,6 +184,7 @@ class ISIBEA(BaseIndicatorEA):
         self.indicator = indicator
         selection_operator = TournamentSelection(self.population, 2)
         self.selection_operator = selection_operator
+        self.fitnesses = self.population.objectives
 
 
     # override baseindiea
@@ -199,54 +200,92 @@ class ISIBEA(BaseIndicatorEA):
         fronts_indices = fast_non_dominated_sort_indices(self.population.objectives)
         # not sure which i ll use
         #fronts = fast_non_dominated_sort(self.population.objectives)
+        #print("fit shape",self.fitnesses.shape)
         
+        NP = self.population.pop_size
+        #print("NP", NP)
+
+        # TODO: what to do if P1 is smaller than NP, where to find pop members
+        # TODO: control when P1 is smaller or greater than NP so neither popsize grows or shrinks during iterations.
         # add pop to P1 until |P1| >= pop.size
         # is cool but matlab code seems not to care about this
         P1 = self.add_to_P1(fronts_indices)
-        #print(P1)
-        #if len(P1) == NP
+        #print("P1 len before",len(P1))
 
-        self.fitnesses = self.population.objectives
-        loss = np.zeros(20)
-        # compute Hv indicator values 
-        ref = np.array([5.0,5.0,5.0])
-        fitness = np.ma.array(self.fitnesses, mask=False)
-        # what i was doing with the masks ?
-        # this mess actually might be ok. does step 3,c.
-        for i in range(20):
-            fitness.mask[i] = True
-            lossval = hypervolume(self.fitnesses, ref) - hypervolume(fitness, ref)
-            #if lossval == # could do check for too small values and make them to be say 0.0001 etc. do it if overflow/underflow errors
-            loss[i] = lossval
-            fitness.mask[i] = False
+        assert(len(P1) >= NP)
 
-        print(loss)
-        #NoN = 
+        if len(P1) == NP:
+            self.population.keep(P1[:self.population.pop_size])
 
+        else:
+            self.fitnesses = self.fitnesses[:len(P1)]
+            loss = np.zeros(self.fitnesses.shape[0])
+            # compute Hv indicator values 
 
-        input()
+            # nadir infinite is not good
+            #ref = self.population.nadir_objective_vector # ref is like nadir at that point
+            #ref = np.array([100.,100.,100.]) # ref is like nadir at that point
+            ref = np.max(self.population.objectives, axis=0)
+            P_not_z = np.ma.array(self.fitnesses, mask=False)
+            # Masks are to mask the z out.
+            # this mess actually might be ok. does step 3,c.
+            for i in range(self.fitnesses.shape[0]):
+                P_not_z.mask[i] = True
+                # d(z) = I(P') - I(P' \ z) . Now P' = P
+                lossval = hypervolume(self.fitnesses, ref) - hypervolume(P_not_z, ref)
+                #if lossval == # could do check for too small values and make them to be say 0.0001 etc. do it if overflow/underflow errors
+                loss[i] = lossval
+                P_not_z.mask[i] = False
+
+            #print(loss)
+            
+            # remove until pop size is the same as starting
+            # 3d remove |P1| - NP solutions from P' with the smallest loss d(z)
+            # include the remaining in P' to P1, set P = P1
+            diff = len(P1) - NP
+
+            #print("diff", diff)
+            worst_idx = np.argsort(loss)[-diff:]
+            #print(worst_idx)
+                # same basic problem. need to return list with x worst values then pop them off.
+            P1 = np.delete(P1, worst_idx, 0)    
+                # worst_idx need to remove list that will tell which x number of idx to remove so pop size is NP again.
+                # worst_index = np.argmin(loss, axis=0)
+                # self.population.delete(worst_index)
+                #self.fitnesses = np.delete(self.fitnesses, worst_index, 0)
+
+            # set P = P1         
+            self.population.keep(P1)
+            #print("pop obj shape after",self.population.objectives.shape)
+            #print("pop individuals shape after",self.population.individuals.shape)
+            #print("POP sizes,", self.population.pop_size, self.population.individuals.shape[0])
+            #worst_index = np.argmin(self.fitnesses, axis=0)[0] # gets the index worst member of population
+            #self.fitnesses = self._environmental_selection(self.fitnesses, worst_index)
+            # remove the worst member from population and from fitnesses
+            #self.population.delete(worst_index)
+            #self.fitnesses = np.delete(self.fitnesses, worst_index, 0)
+
 
         self._current_gen_count += 1
         self._gen_count_in_curr_iteration += 1
         self._function_evaluation_count += offspring.shape[0]
 
     # this should work good enough for the step 3a.
+    # we actually want to handle indixes here i think..
     def add_to_P1(self, fronts):
-        NP = 10
-        P1 = []
+        NP = self.population.pop_size 
         i=0 
         P_idx = []
-        while len(P1) < NP and i <= len(fronts):    
+        while len(P_idx) < NP and i <= len(fronts):    
             vals = fronts[i] # get Fi
             sols = vals[0][0:]
-            P_idx.append(sols) # set front idxes to P1idx
             
-            for j in sols:
-                P1.append(self.population.objectives[j])
+            for j in (sols):
+                P_idx.append(j)
             i += 1
-        
-        P1 = np.stack(P1) # to return as 1 2d arr
-        return P1
+       
+        P_idx = np.asarray(P_idx)
+        return P_idx
 
 
     
@@ -272,6 +311,19 @@ class ISIBEA(BaseIndicatorEA):
         pass 
 
 
+    # this might need override?
+    def end(self):
+        """Conducts non-dominated sorting at the end of the evolution process
+        Returns:
+            tuple: The first element is a 2-D array of the decision vectors of the non-dominated solutions.
+                The second element is a 2-D array of the corresponding objective values.
+        """
+        non_dom = self.population.non_dominated_objectives()
+        return (
+            self.population.individuals[non_dom, :],
+            self.population.objectives[non_dom, :],
+        )
+
 
 if __name__=="__main__":
     print("ISIBEA")
@@ -279,22 +331,30 @@ if __name__=="__main__":
     import matplotlib.pyplot as plt
     from desdeo_problem.testproblems.TestProblems import test_problem_builder
 
-    # start the problem
-    problem_name = "DTLZ4"
-    problem = test_problem_builder(problem_name, n_of_variables=5, n_of_objectives=3)
+    problem_name = "ZDT1"
+    problem = test_problem_builder(problem_name)   # start the problem
+    #problem_name = "DTLZ4"
+    #problem = test_problem_builder(problem_name, n_of_variables=5, n_of_objectives=3)
 
     weights = [1,1,1]
 
-    isibea = ISIBEA(problem, population_size=10, n_iterations=1, n_gen_per_iter=50,total_function_evaluations=1000, da=5 )
+    isibea = ISIBEA(problem, population_size=32, n_iterations=10, n_gen_per_iter=100,total_function_evaluations=5000, da=5 )
+    print(isibea.population.objectives)
     while isibea.continue_evolution():
         isibea.iterate()
     individuals, objective_values = isibea.end()
-    print("IBEA ideal",isibea.population.problem.ideal)
+
+    # TODO: rest of ISIBEA 
+    # NOTE: baseEA end removes dominated pop members, thats why usually the amount individuals in the end is less than starting pop size.
+   
+    print("individuals shape", individuals.shape)
+    print(objective_values.shape)
+    #print("IBEA ideal",isibea.population.problem.ideal)
     plt.scatter(x=objective_values[:,0], y=objective_values[:,1], label="IBEA Front")
     plt.title(f"IBEA approximation")
     plt.xlabel("F1")
     plt.ylabel("F2")
     plt.legend()
-    #plt.show()
+    plt.show()
     # need to get the population
     #ini_pop = ib.population # so pbea doesn't get only the non dom pop members, and popsize stays the same
