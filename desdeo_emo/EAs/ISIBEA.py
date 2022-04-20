@@ -1,171 +1,85 @@
-from typing import Dict, Callable
+from typing import Dict, Callable, Tuple
 import numpy as np
+import pandas as pd
 from desdeo_emo.population.Population import Population
-from desdeo_emo.selection.TournamentSelection import TournamentSelection
 from desdeo_tools.scalarization import SimpleASF
 from desdeo_emo.EAs.BaseIndicatorEA import BaseIndicatorEA
-from desdeo_tools.utilities.quality_indicator import preference_indicator 
 from desdeo_problem import MOProblem
 
 from desdeo_tools.utilities import fast_non_dominated_sort, fast_non_dominated_sort_indices
-
+from desdeo_tools.interaction import (
+   SimplePlotRequest,
+   ReferencePointPreference,
+    validate_ref_point_with_ideal_and_nadir,
+)
 
 import hvwfg as hv
 
-
-"""
-    SIBEA algo notes
-    1. P pop, size of NP gen randomly
-    2. crossover and mutation to create offspring pop Q size NP
-    3. P : P + Q, combine parent and offspring pop, then do enviromental selection (non dom sorting) to reduce P to size on NP.
-    4. DM interacts with the algo
-    5. fixed number of nondom DA subset of A is identified (use k-means clustering)
-    6. show DM the DA solutions of A 
-    7. Terminate if dm wants to quit, show itself, use ASF.
-    8. ask the DM to classify DA into AA and/or RA and derive the sets Do, In, Pr to get updated weighted hypervolume. go step 2.
+def show_clustered_solutions(objective_values, da):
+    codebook, distortion = kmeans(objective_values, da)
+    plt.scatter(codebook[:,0], codebook[:,1], c='r')
+    plt.title(f"I-SIBEA DA clusters")
+    plt.xlabel("F1")
+    plt.ylabel("F2")
+    #plt.legend()
+    plt.show()
+    return codebook
 
 
+def plot_final(objective_values, chosen):
+    if objective_values.shape[1] == 2:
+        plot_final2d(objective_values, chosen)
+    if objective_values.shape[1] == 3:
+        plot_final3d(objective_values, chosen)
 
-    weight distribution function
 
-    w(z) = 0 for a z in do
+def plot_final2d(objective_values, chosen):
+    plt.scatter(x=objective_values[:,0], y=objective_values[:,1], label="I-SIBEA Front")
+    plt.scatter(x=chosen[0], y=chosen[1], c='r',s=100, label="Chosen best solution")
+    plt.title(f"I-SIBEA approximation")
+    plt.xlabel("F1")
+    plt.ylabel("F2")
+    plt.legend()
+    plt.show()
+
+def plot_final3d(objective_values, chosen):
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    ax.view_init(30,45)
+    ax.scatter(objective_values[:,0],objective_values[:,1],objective_values[:,2], label="I-SIBEA Front")
+    ax.scatter(chosen[0], chosen[1], chosen[2], s=100, c='r', label="Chosen best solution")
+    plt.title(f"I-SIBEA approximation")
+    ax.set_xlabel('F1')
+    ax.set_ylabel('F2')
+    ax.set_zlabel('F3')
+    ax.legend()
+    plt.show()
     
 
-    weighted hv indicator: is calculated as the integral over the product of the weight distribution function and attainment_function
-
-    Iw_hv = integral_0^1  w(z) * att(z) dz
-
-
-    TODO:
-    weighted hv seems bit complicated..
-    imo two ways to simplify atleast to get started
-    - only worry about 2d problems
-    - ignore weighting, do first with hv from wfg. So its more like og sibea but only with the interaction parts by not liking some solutions etc.
-    
-    After either of those work can worry about the weighted hv.
-
-"""
+def tcheby(ref, obj, ideal):
+    feval = np.abs(obj - ideal) * ref
+    return np.max(feval)
 
 # dis needs to be able to calculate the loss too
 def hypervolume(obj, ref):
     return hv.wfg(obj, ref)
 
 
-def weakly_dominates(v1, v2):
-    pass 
-
-# not quite sure if needed and where but
-def attainment_function(z, set):
-    # A >= (weakly dominates z)
-    if weakly_dominates(set, z):
-        return 1
-    return 0
-
-
-
-def weighted_hv_indicator():
-    pass
-
-
-
-
-"""
-    I-SIBEA can do a-priori, interactive and post-eriori. I guess lets start with post-eriori and worry rest laterself.
-    - a priori means we interact once with the problem, interactive is that we interact x times, x is what Dm decides
-    - post-eriori is no interactions..
-
-    NP =  pop size
-
-    DA = max number of sols to be shown to DM (default 5)
-    AA, RA == preferred and non-preferred sols after interaction (a-priori and interactive)
-    H = max number of interactions (0 for post-eriori)
-
-
-    Create pop, 
-    do crossover and mutation to offspring Q
-    COmbine P : P + Q, select to NP with enviromental selection
-    do nondom sorting, add to P1 until P1 size is NP. Set P : P1 for next gen.
-        - otherwise the set with worst rank in P1 is denoted P'. 
-            Use hv selection for each z in P', the loss in the 
-            hv d(z) = I(P') - I(P´ \ z) is determined. I is weighted hv indicator. Solution with the smallest loss
-            is removed until the size of the pop does no longer exceed NP, then set P: P1.
-    
-    After fixed number of gens the interactions
-    Step 5 show DA solutions to dm. ( so eg. clustering)
-    Then final solution we optimize ASF.
-
-    
-    OK:
-    TODO: find out how to do
-     issue with baseEAs _next_gen with enviromental selection and using the worst index as means to removing from pop.
-    -ISIBEA has different ways of doing this but BaseIndicatorEA does not have the way of doing this. 
-
-    Also not 100 sure but does fitness assignment come different place in ISIBEA ?
-
-"""
-
-
 class ISIBEA(BaseIndicatorEA):
-    """Python Implementation of ISIBEA. 
 
-    Most of the relevant code is contained in the super class. This class just assigns
-    the EnviromentalSelection operator to BaseIndicatorEA.
-
-    Parameters
-    ----------
-    problem: MOProblem
-        The problem class object specifying the details of the problem.
-    population_size : int, optional
-        The desired population size, by default None, which sets up a default value
-        of population size depending upon the dimensionaly of the problem.
-    population_params : Dict, optional
-        The parameters for the population class, by default None. See
-        desdeo_emo.population.Population for more details.
-    initial_population : Population, optional
-        An initial population class, by default None. Use this if you want to set up
-        a specific starting population, such as when the output of one EA is to be
-        used as the input of another.
-    a_priori : bool, optional
-        A bool variable defining whether a priori preference is to be used or not.
-        By default False
-    interact : bool, optional
-        A bool variable defining whether interactive preference is to be used or
-        not. By default False
-    n_iterations : int, optional
-        The total number of iterations to be run, by default 10. This is not a hard
-        limit and is only used for an internal counter.
-    n_gen_per_iter : int, optional
-        The total number of generations in an iteration to be run, by default 100.
-        This is not a hard limit and is only used for an internal counter.
-    total_function_evaluations : int, optional
-        Set an upper limit to the total number of function evaluations. When set to
-        zero, this argument is ignored and other termination criteria are used.
-    use_surrogates: bool, optional
-    	A bool variable defining whether surrogate problems are to be used or
-        not. By default False
-    kappa : float, optional
-        Fitness scaling value for indicators. By default 0.05.
-    indicator : Callable, optional
-        Quality indicator to use in indicatorEAs. 
-    reference_point : np.ndarray
-        The reference point that guides the PBEAs search.
-    delta : float, optional
-        Spesifity for the preference based quality indicator. By default 0.01.
-
-    """
     def __init__(self,
         problem: MOProblem,
         population_size: int,
         initial_population: Population = None,
         a_priori: bool = False,
-        interact: bool = False,
+        interact: bool = False, # false means posteori I-SIBEA
         n_iterations: int = 10,
         n_gen_per_iter: int = 100,
         total_function_evaluations: int = 0,
         use_surrogates: bool = False,
-        #indicator: Callable = weighted_hv_indicator,
         indicator: Callable = hypervolume,
         da: int = 5,
+        weights = [],
         population_params: Dict = None,
         ):
         super().__init__(
@@ -182,8 +96,9 @@ class ISIBEA(BaseIndicatorEA):
         )
 
         self.indicator = indicator
-        selection_operator = TournamentSelection(self.population, 2)
-        self.selection_operator = selection_operator
+        self.da = da
+        self.weights = weights
+        #self.selection_operator = selection_operator
         self.fitnesses = self.population.objectives
 
 
@@ -193,78 +108,63 @@ class ISIBEA(BaseIndicatorEA):
         offspring = self.population.mate()
         # add works great
         self.population.add(offspring)
-        #print(self.population.pop_size)
-        #print(self.population.individuals.shape[0])
         
-        # step 3. enviromental selection
+        # front indices has the non dominated solution indices
         fronts_indices = fast_non_dominated_sort_indices(self.population.objectives)
-        # not sure which i ll use
-        #fronts = fast_non_dominated_sort(self.population.objectives)
-        #print("fit shape",self.fitnesses.shape)
         
+        non_dom_indices = []
+        for i in fronts_indices:
+            i = i[0] # take first of the tuple which has the indices
+            for j in range(len(i)):
+                non_dom_indices.append(i[j])
+
         NP = self.population.pop_size
-        #print("NP", NP)
-
-        # TODO: what to do if P1 is smaller than NP, where to find pop members
-        # TODO: control when P1 is smaller or greater than NP so neither popsize grows or shrinks during iterations.
-        # add pop to P1 until |P1| >= pop.size
-        # is cool but matlab code seems not to care about this
         P1 = self.add_to_P1(fronts_indices)
-        #print("P1 len before",len(P1))
-
+        #print("P1", len(P1))
+        
+        #loss = None
         assert(len(P1) >= NP)
 
         if len(P1) == NP:
             self.population.keep(P1[:self.population.pop_size])
-
+            print("P1 == NP")
         else:
-            self.fitnesses = self.fitnesses[:len(P1)]
-            loss = np.zeros(self.fitnesses.shape[0])
-            # compute Hv indicator values 
-
-            # nadir infinite is not good
-            #ref = self.population.nadir_objective_vector # ref is like nadir at that point
-            #ref = np.array([100.,100.,100.]) # ref is like nadir at that point
-            ref = np.max(self.population.objectives, axis=0)
-            P_not_z = np.ma.array(self.fitnesses, mask=False)
-            # Masks are to mask the z out.
-            # this mess actually might be ok. does step 3,c.
-            for i in range(self.fitnesses.shape[0]):
-                P_not_z.mask[i] = True
-                # d(z) = I(P') - I(P' \ z) . Now P' = P
-                lossval = hypervolume(self.fitnesses, ref) - hypervolume(P_not_z, ref)
-                #if lossval == # could do check for too small values and make them to be say 0.0001 etc. do it if overflow/underflow errors
-                loss[i] = lossval
-                P_not_z.mask[i] = False
-
-            #print(loss)
             
+            # TODO: make this use actual DM preferences
+            
+            # now only posteori way with tcheby being the DM.
+            if self._current_gen_count in [50,150,300,350]:
+                print("Interaction step with ADM")
+                # TODO: this only missing. Use tseby when posteori and get from user when interactive..
+                A_indices = np.array([i for i in range(self.fitnesses.shape[0])])
+                xlist = []
+                for i in A_indices:
+                    xlist.append(tcheby(self.fitnesses[i], self.weights, self.population.ideal_objective_vector))
+                
+                AA = np.argmin(xlist)
+                RA_all = A_indices
+                RA = np.delete(RA_all, AA, 0)
+
+                #fitnesses = self.fitnesses[:len(P1)]
+                fitnesses = self.fitnesses
+                loss = self._environmental_selection(fitnesses, AA, RA, IA)
+            
+            else:
+            # step 3. enviromental selection
+                #fitnesses = self.fitnesses[:len(P1)]
+                fitnesses = self.fitnesses
+                loss = self._environmental_selection(fitnesses)
+             
+            # TODO: make sure P1 has correct indis and get rid of computing all losses always
             # remove until pop size is the same as starting
             # 3d remove |P1| - NP solutions from P' with the smallest loss d(z)
-            # include the remaining in P' to P1, set P = P1
+            # include the remaining in P' to P1, set P = P1                
             diff = len(P1) - NP
-
-            #print("diff", diff)
             worst_idx = np.argsort(loss)[-diff:]
-            #print(worst_idx)
-                # same basic problem. need to return list with x worst values then pop them off.
             P1 = np.delete(P1, worst_idx, 0)    
-                # worst_idx need to remove list that will tell which x number of idx to remove so pop size is NP again.
-                # worst_index = np.argmin(loss, axis=0)
-                # self.population.delete(worst_index)
-                #self.fitnesses = np.delete(self.fitnesses, worst_index, 0)
-
             # set P = P1         
             self.population.keep(P1)
-            #print("pop obj shape after",self.population.objectives.shape)
-            #print("pop individuals shape after",self.population.individuals.shape)
-            #print("POP sizes,", self.population.pop_size, self.population.individuals.shape[0])
-            #worst_index = np.argmin(self.fitnesses, axis=0)[0] # gets the index worst member of population
-            #self.fitnesses = self._environmental_selection(self.fitnesses, worst_index)
-            # remove the worst member from population and from fitnesses
-            #self.population.delete(worst_index)
-            #self.fitnesses = np.delete(self.fitnesses, worst_index, 0)
-
+            #self.fitnesses = self.population.objectives
 
         self._current_gen_count += 1
         self._gen_count_in_curr_iteration += 1
@@ -301,14 +201,64 @@ class ISIBEA(BaseIndicatorEA):
         pass
 
 
-
-    def _environmental_selection(self, fitnesses):
+    def _environmental_selection(self, fitnesses, AA=None, RA=None, IA=None):
         """
-            Selects the worst member of population, then updates the population members fitness values compared to the worst individual.
-            Worst individual is removed from the population.
             
         """
-        pass 
+        # atleast AA needs to exist i think.. atleast lest just consider it for starters
+        
+        #self.fitnesses = fitnesses
+        #print(self.fitnesses[:5]) # smh wrong with the fitnesses
+        loss = np.zeros(fitnesses.shape[0])
+        #ref = np.max(self.population.objectives, axis=0)
+        ref = np.max(fitnesses, axis=0)
+        P_not_z = np.ma.array(fitnesses, mask=False) # Masks are to mask the z out.
+        
+        if AA is not None:
+            # TODO: does not work, some reason second objective is very big.. this makes hv to be 0. somehow we break the self.fitnesses[1]..
+            #print(self.fitnesses[:5])
+            do_idx = np.array(RA)
+            pr_idx = np.array(AA)
+            mask_do = np.zeros(fitnesses.shape, bool)
+            mask_pr = np.zeros(fitnesses.shape, bool)
+            mask_do[do_idx] = True
+            mask_pr[pr_idx] = True
+            #print(mask_do)
+            do = np.ma.masked_array(fitnesses, mask_do)
+            pr = np.ma.masked_array(fitnesses, mask_pr)
+            #print(fitnesses[:,1])
+    
+            hv_Do = hypervolume(do, ref)
+            hv_Pr = hypervolume(pr, ref)
+            
+            divide = hv_Do/(hv_Pr+0.000001) # to prevent divide by 0
+            #print(divide) # some possible issue here since it seems to be 0 very often          
+            
+            for i in range(fitnesses.shape[0]):
+                P_not_z.mask[i] = True
+                # d(z) = I(P') - I(P' \ z) . Now P' = P
+                lossval = hypervolume(self.fitnesses, ref) - hypervolume(P_not_z, ref)
+                w_z = 1 # default IA.
+                if np.any(AA) == i: # if in preferred
+                    w_z = 1 + divide # 1 + hv(DO)/hv(Pr)
+                elif np.any(RA) == i: # if in non preferred
+                    w_z = 0
+
+                loss[i] = w_z * lossval
+                P_not_z.mask[i] = False
+        
+        else:
+            for i in range(fitnesses.shape[0]):
+                P_not_z.mask[i] = True
+                # d(z) = I(P') - I(P' \ z) . Now P' = P
+                lossval = hypervolume(self.fitnesses, ref) - hypervolume(P_not_z, ref)
+                loss[i] = lossval
+                P_not_z.mask[i] = False
+        
+        # update self fitnesses
+        self.fitnesses = fitnesses
+        
+        return loss
 
 
     # this might need override?
@@ -323,38 +273,123 @@ class ISIBEA(BaseIndicatorEA):
             self.population.individuals[non_dom, :],
             self.population.objectives[non_dom, :],
         )
+    
+    
+    def requests(self) -> Tuple:
+        return (self.request_preferences(), self.request_plot())
+    
+    def request_preferences(self):
+        dimensions_data = pd.DataFrame(
+            index=["minimize", "ideal", "nadir"],
+            columns=self.population.problem.get_objective_names(),
+        )
+        dimensions_data.loc["minimize"] = self.population.problem._max_multiplier
+        dimensions_data.loc["ideal"] = self.population.ideal_objective_vector
+        dimensions_data.loc["nadir"] = self.population.nadir_objective_vector
+        message = ("Please provide preferences as a preferred points (AA) or non-preferred points (RA). Atleast one point needs to be preferred or not preferred.\n\n"
+            f"The preferred points will focus the search towards the preferred regions and non-preferred points away from the non-preferred regions. "
+            )
+
+        def validator(dimensions_data: pd.DataFrame, reference_point: pd.DataFrame):
+            validate_ref_point_dimensions(dimensions_data, reference_point)
+            validate_ref_point_data_type(reference_point)
+            validate_ref_point_with_ideal(dimensions_data, reference_point)
+            return
+                   
+        interaction_priority = "required"
+        self._interaction_request_id = np.random.randint(0, 1e9)
+
+        return ReferencePointPreference(
+                dimensions_data=dimensions_data,
+                message=message,
+                interaction_priority=interaction_priority,
+                preference_validator=validate_ref_point_with_ideal_and_nadir,
+                request_id=self._interaction_request_id,
+            
+        )
+        
+        
+    def request_plot(self) -> SimplePlotRequest:
+        dimensions_data = pd.DataFrame(
+            index=["minimize", "ideal", "nadir"],
+            columns=self.population.problem.get_objective_names(),
+        )
+        dimensions_data.loc["minimize"] = self.population.problem._max_multiplier
+        dimensions_data.loc["ideal"] = self.population.ideal_objective_vector
+        dimensions_data.loc["nadir"] = self.population.nadir_objective_vector
+        data = pd.DataFrame(
+            self.population.objectives, columns=self.population.problem.objective_names
+        )
+        return SimplePlotRequest(
+            data=data, dimensions_data=dimensions_data, message="Objective Values"
+        )
 
 
 if __name__=="__main__":
-    print("ISIBEA")
     from desdeo_problem import MOProblem
-    import matplotlib.pyplot as plt
     from desdeo_problem.testproblems.TestProblems import test_problem_builder
+    from desdeo_tools.scalarization import SimpleASF # lets just use desdeos SimpleASF as the achievement scalarizing function
 
-    problem_name = "ZDT1"
-    problem = test_problem_builder(problem_name)   # start the problem
-    #problem_name = "DTLZ4"
-    #problem = test_problem_builder(problem_name, n_of_variables=5, n_of_objectives=3)
+    problem_name = "ZDT4"
+    problem = test_problem_builder(problem_name, n_of_variables=10, n_of_objectives=2)
 
-    weights = [1,1,1]
+    print("Solving problem: ", problem_name)
+    weights = np.array([0.5,0.5])
 
-    isibea = ISIBEA(problem, population_size=32, n_iterations=10, n_gen_per_iter=100,total_function_evaluations=5000, da=5 )
-    print(isibea.population.objectives)
+    # run ibea
+    # step 0. Let's start with rough approx
+    isibea = ISIBEA(problem, population_size=100, n_iterations=10, n_gen_per_iter=100,total_function_evaluations=40000, da=5, interact=False, weights=weights)
     while isibea.continue_evolution():
         isibea.iterate()
+        
+        # DM, interactive version..
+        if isibea._current_gen_count in [100,200,300,400] and isibea.interact == True:
+            individuals, objective_values = isibea.end()
+            print(isibea._gen_count_in_curr_iteration)
+            print(isibea._current_gen_count) # this is the generations
+            pref, plot = isibea.requests()
+            print(pref.content['message'])
+            
+            # show DA solutions to DM
+            #whitened = whiten(objective_values)
+            da_sols = show_clustered_solutions(objective_values, isibea.da)
+            print(da_sols)
+            # TODO: handle selection
+            
+            #break
+            
     individuals, objective_values = isibea.end()
+    # if number of interactions == 0: do more complex thing otherwise
+    we = 1/(np.max(objective_values, axis=0) - np.min(objective_values, axis=0)) # weight vector for asf is wi = 1 / zi_max - zi_min
 
-    # TODO: rest of ISIBEA 
-    # NOTE: baseEA end removes dominated pop members, thats why usually the amount individuals in the end is less than starting pop size.
-   
-    print("individuals shape", individuals.shape)
-    print(objective_values.shape)
-    #print("IBEA ideal",isibea.population.problem.ideal)
-    plt.scatter(x=objective_values[:,0], y=objective_values[:,1], label="IBEA Front")
-    plt.title(f"IBEA approximation")
-    plt.xlabel("F1")
-    plt.ylabel("F2")
-    plt.legend()
-    plt.show()
-    # need to get the population
-    #ini_pop = ib.population # so pbea doesn't get only the non dom pop members, and popsize stays the same
+    # posteriori maybe ok here
+    if isibea.interact == False: # if posteori
+        asf = SimpleASF(we) # weight vector is 0.5, 0.5
+        asf_values = asf(objective_values, reference_point=weights)
+        min_asf_idx = np.argmin(asf_values)
+        min_asf_value = np.min(asf_values)
+        #print(asf_values)
+        #print(min_asf_value)
+        print(f"Final solution after ASF: {objective_values[min_asf_idx]}")
+        print(f"Mean of asf values: {np.mean(asf_values)}")
+
+    # interactive seems to work ok too i guess
+    else:       
+        # show last da solutions
+        da_sols = show_clustered_solutions(objective_values, isibea.da)
+        print(da_sols)
+        selected = da_sols[0] # we want the one in first index always
+        asf = SimpleASF(weights) # weight vector is 0.5, 0.5
+        asf_values = asf(selected, reference_point=weights)
+        min_asf_idx = np.argmin(asf_values)
+        min_asf_value = np.min(asf_values)
+        #print(asf_values)
+        #print(min_asf_value)
+        print(f"Chosen solution after ASF: {objective_values[min_asf_idx]}")
+        print(f"Mean of asf values: {np.mean(asf_values)}")
+
+    chosen = objective_values[min_asf_idx]
+    print(isibea._gen_count_in_curr_iteration)
+    print(isibea._current_gen_count) # this is the generations
+    print(isibea.total_function_evaluations) # total function evaluations
+    plot_final(objective_values, chosen)
