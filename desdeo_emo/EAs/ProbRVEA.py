@@ -4,7 +4,7 @@ from desdeo_emo.EAs.BaseEA import BaseDecompositionEA, eaError
 from desdeo_emo.population.Population import Population
 
 from desdeo_emo.selection.APD_Select_constraints import APD_Select
-from desdeo_emo.selection.Prob_APD_Select import Prob_APD_select  # superfast y considering mean APD
+from desdeo_emo.selection.Prob_APD_Select import Prob_APD_select, Prob_APD_select_v3  # superfast y considering mean APD
 import numpy as np
 from desdeo_tools.interaction import (
     SimplePlotRequest,
@@ -407,9 +407,21 @@ class ProbRVEA(RVEA):
         num_of_fit = problem.n_of_fitnesses
         num_of_obj = len(problem.objective_names)
         print("num of obj", num_of_obj)
-        selection_operator = Prob_APD_select(
-            self.population, num_of_fit, num_of_obj, self.time_penalty_function, alpha
-        )
+        selection_operator = Prob_APD_select(self.population, num_of_fit, num_of_obj, self.time_penalty_function, alpha)
+        # 9.4 60
+        #MINMAXES
+        #(-0.5418069650210939, 1.6057726473978304)
+        #(-0.38166302048504885, 1.6335224950810368)
+        #(-0.3829086159722088, 1.391068156873832)
+
+        #selection_operator = Prob_APD_select_v3(self.population, num_of_fit, num_of_obj, self.time_penalty_function, alpha)
+        # 9.2, 62
+        #MINMAXES
+        # : (-0.36064886128615825, 1.5298248022559235)
+        #: (-0.36272337793604237, 1.5173115800959052)
+        #: (-0.25439010545210294, 1.3538371598859698)
+        
+
         self.selection_operator = selection_operator
 
 
@@ -457,7 +469,7 @@ if __name__=="__main__":
         pass
     import warnings
     warnings.warn = warn
-    prr = "dtlz2"
+    prr = "dtlz1"
 
     def obj_function1(x):
 
@@ -522,8 +534,15 @@ if __name__=="__main__":
     #evolver.end()
     print(evolver.total_function_evaluations)
     obj = evolver.population.objectives
+    obj1minmax = (np.min(obj[:,0]), np.max(obj[:,0]))
+    obj2minmax = (np.min(obj[:,1]), np.max(obj[:,1]))
+    obj3minmax = (np.min(obj[:,2]), np.max(obj[:,2]))
 
-    hv_evolver = hypervolume_indicator(obj, np.array([2.,2.,2.]))
+    print("MINMAXES\n:", obj1minmax)
+    print(obj2minmax)
+    print(obj3minmax)
+
+    hv_evolver = hypervolume_indicator(obj, np.array([1.5,1.5,1.5]))
     print("HV of evolver", hv_evolver, len(obj))
 
     #y_f = front_u[:,[0,1,2]]
@@ -531,7 +550,7 @@ if __name__=="__main__":
     objectives = problem.archive.drop(problem.variable_names, axis=1).to_numpy()
     Best_solutions = objectives
 
-    hv_archive = hypervolume_indicator(objectives, np.array([2.,2.,2.]))
+    hv_archive = hypervolume_indicator(objectives, np.array([1.5,1.5,1.5]))
     print("HV of archive", hv_archive, len(objectives))
     # hvs to beat
     #HV of evolver 9.225883017160772 58
@@ -545,7 +564,7 @@ if __name__=="__main__":
     ref_dirs = get_reference_directions("das-dennis", 3, n_partitions=12)
     pf = p.pareto_front(ref_dirs)
 
-    hv_pf = hypervolume_indicator(pf, np.array([2.,2.,2.]))
+    hv_pf = hypervolume_indicator(pf, np.array([1.5,1.5,1.5]))
     print("HV of pf front", hv_pf, len(pf))
 
 

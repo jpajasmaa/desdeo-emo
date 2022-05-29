@@ -189,12 +189,18 @@ class Prob_APD_select(InteractiveDecompositionSelectionBase):
             exact_sub_population_index = np.atleast_1d(
                 np.squeeze(np.where(assigned_vectors_e == i))
             )
+            #print(sub_population_index, exact_sub_population_index)
             exact_sub_population_fitness = exact_f[exact_sub_population_index]
+
+
             # ^ this very often empty
 
+            #print(exact_sub_population_fitness.shape) #[[xx,yy,zz]], (1,3) shape
             #print(exact_sub_population_fitness)
 
+            #input()
             minidx = None
+            exact_minidx = None
 
             if len(sub_population_fitness > 0):
                 print("there are subpop members")
@@ -218,86 +224,79 @@ class Prob_APD_select(InteractiveDecompositionSelectionBase):
                 )
 
                 safe_pick = np.mean(apd, axis=2)
+                #safeidx = np.where(safe_pick == np.nanmin(safe_pick))
                 safeidx = np.where(safe_pick[0] == np.nanmin(safe_pick[0]))
                 minidx = safeidx
+
                 # if exact sub pop has members
-                if len(exact_sub_population_fitness > 0):
-                    print("there are exact subpop members")
-                    # f* eg APD*_{exact,j} calculation
-                    exact_angles = theta_e[exact_sub_population_index, i]
-                    exact_angles = np.divide(exact_angles, refV[i])  # This is correct.
-                    #print("exact ang",exact_angles.shape)
-                    #input()
-                    # You have done this calculation before. Check with fitness_norm
-                    # Remove this horrible line
-                    exact_sub_pop_fitness_magnitude = np.sqrt(
-                        np.sum(np.power(exact_sub_population_fitness, 2), axis=1)
-                    )
-                    #print(exact_sub_pop_fitness_magnitude.shape)
-                    e_sub_popfm = np.reshape(exact_sub_pop_fitness_magnitude, (1, len(exact_sub_pop_fitness_magnitude)))
-                    #print(e_sub_popfm)
+            if len(exact_sub_population_fitness > 0):
+                print("there are exact subpop members")
+                # f* eg APD*_{exact,j} calculation
+                exact_angles = theta_e[exact_sub_population_index, i]
+                exact_angles = np.divide(exact_angles, refV[i])  # This is correct.
+                #print("exact ang",exact_angles.shape)
+                #input()
+                # You have done this calculation before. Check with fitness_norm
+                # Remove this horrible line
+                exact_sub_pop_fitness_magnitude = np.sqrt(
+                    np.sum(np.power(exact_sub_population_fitness, 2), axis=1)
+                )
+                #print(exact_sub_pop_fitness_magnitude.shape)
+                e_sub_popfm = np.reshape(exact_sub_pop_fitness_magnitude, (1, len(exact_sub_pop_fitness_magnitude)))
+                #print(e_sub_popfm)
+                apd_exact = np.multiply(e_sub_popfm, (1 + np.dot(penalty_factor, exact_angles)))
+                #print("exact apd shape",apd_exact.shape)
 
-                    apd_exact = np.multiply(e_sub_popfm, (1 + np.dot(penalty_factor, exact_angles)))
-                    #print("exact apd shape",apd_exact.shape)
+                fmin = np.amax(apd_exact) # do we want max or min of real apd values
+                std = .1
+                rank_apd = EI(apd_exact, std, fmin, .1)
 
-                # ACCORDING TO BOTORCH DOCS:
-                # analytic EI, only exist for single candidate point !
-                
-                # I dont quite get it right now. Do I have to call the surrogate from here to approx the EI?? 
-
-                #tradeoff = 0.01
-                #imp = pwrong.mean_samples - fmin - tradeoff
-                #z = imp / pwrong.sigma_samples 
-                #ei = imp + pwrong.sigma_samples 
-                #ei[std == 0.0] = 0.0
-
-                    fmin = np.amin(apd_exact) # do we want max or min of real apd values
-                    std = .1
-                    rank_apd = EI(apd, std, fmin, .1)
-
-                    minidx = np.where(rank_apd[0,:] == np.nanmax(rank_apd[0,:]))[0][0]
-                    #print("min IDXZ",minidx)
-                    self.ei_apd = True
+                exact_minidx = np.where(rank_apd[0,:] == np.nanmax(rank_apd[0,:]))[0][0]
+                #print("min IDXZ",minidx)
+                self.ei_apd = True
 
 
-                """ 
-                from scipy.stats import norm
-                from scipy.special import ndtr
-                def EI(mean, std, max_val, tradeoff):
-                    imp = (mean - max_val - tradeoff)
-                    z = imp / std
-                    ei = imp * norm.cdf(z) + std * norm.pdf(z)
-                    ei[std == 0.0] = 0.0
-                    return ei
+            #if np.isnan(apd).all():
+            #    continue
 
-                """
+            exact_selx = None
+            selx = None
+            if self.ei_apd:
+                #print(exact_sub_population_index, minidx)
+                #selx = exact_sub_population_fitness[minidx]
+                exact_selx = exact_sub_population_index[exact_minidx]
+                #print("EIAPD selx", exact_selx)
+                self.ei_apd = False
+            if minidx is not None:
+                #print("min idx",minidx)
+                selx = sub_population_index[minidx]
+                #print("selx", selx)
 
-                #if np.isnan(rank_apd).all():
-                #    continue
-                #comb_idxs = np.concatenate(exact_sub_population_index, sub_population_index)
-                #selx = exact_sub_population_index[minidx]
-                #if mini
-                #selx = minidx
-                #print(sub_population_index, minidx)
-                #print("in", comb_idxs, minidx)
-                #selx = comb_idxs[minidx]
+            if selection.shape[0] == 0:
+                print("sel empty now")
+                if selx is not None:
+                    selection = np.hstack((selection, selx))
+                if exact_selx is not None:
+                    selection = np.hstack((selection, exact_selx))
+                vector_selection = np.asarray(i)
+            else:
+                if selx is not None:
+                    #selx = np.atleast_2d(selx)
+                    #print("SX", selx)
+                    #print("SX", selx.shape)
+                    #print("SEL", selection.shape)
+                    selection = np.hstack((selection, selx))
 
-                if self.ei_apd:
-                    #print(exact_sub_population_index, minidx)
-                    #selx = exact_sub_population_fitness[minidx]
-                    selx = minidx
-                    self.ei_apd = False
-                else:
-                    selx = sub_population_index[minidx]
-                if selection.shape[0] == 0:
-                    selection = np.hstack((selection, np.transpose(selx)))
-                    vector_selection = np.asarray(i)
-                else:
-                    selection = np.vstack((selection, np.transpose(selx)))
-                    vector_selection = np.hstack((vector_selection, i))
-
+                if exact_selx is not None:
+                    #exact_selx = np.atleast_2d(exact_selx)
+                    #print("EX", exact_selx)
+                    #print("EX", exact_selx.shape)
+                    #print("SEL", selection.shape)
+                    selection = np.hstack((selection, exact_selx))
+                vector_selection = np.hstack((vector_selection, i))
 
         if selection.shape[0] == 0:
+            print("GOT here")
             rand_select = np.random.randint(len(fitness), size=1)
             selection = rand_select
 
@@ -308,10 +307,12 @@ class Prob_APD_select(InteractiveDecompositionSelectionBase):
             #print(rand_select.shape)
             selection = np.vstack((selection, np.transpose(rand_select[0])))
 
-        print("SELECTION:\n", selection)
+        #print("SELECTION:\n", selection)
+        print(selection.shape)
+        #res = selection.squeeze()
+        #print(res)
+
         return selection.squeeze()
-
-
 
 
     def _partial_penalty_factor(self) -> float:
@@ -339,83 +340,142 @@ class Prob_APD_select(InteractiveDecompositionSelectionBase):
         #vectors = self.vectors
 
 
-def plot_selection(selection, fitness, uncertainty, assigned_vectors, vectors):
-    rc('font',**{'family':'serif','serif':['Helvetica']})
-    rc('text', usetex=True)
-    plt.rcParams.update({'font.size': 17})
-    #plt.rcParams["text.usetex"] = True
-    vector_anno = np.arange(len(vectors.values))
-    fig = plt.figure(1, figsize=(10, 10))
-    fig.set_size_inches(4, 4)
-    ax = fig.add_subplot(111)
-    ax.set_xlabel('$f_1$')
-    ax.set_ylabel('$f_2$')
-    plt.xlim(-0.02, 1.75)
-    plt.ylim(-0.02, 1.75)
-
-    #plt.scatter(vectors.values[:, 0], vectors.values[:, 1])
-    sx= selection.squeeze()
-    #plt.scatter(translated_fitness[sx,0],translated_fitness[sx,1])
-    #plt.scatter(fitness[sx, 0], fitness[sx, 1])
-    #for i, txt in enumerate(vector_anno):
-    #    ax.annotate(vector_anno, (vectors.values[i, 0], vectors.values[i, 1]))
-    
-    #[plt.arrow(0, 0, dx, dy, color='magenta', length_includes_head=True,
-    #           head_width=0.02, head_length=0.04) for ((dx, dy)) in vectors.values]
-
-    plt.errorbar(fitness[:, 0], fitness[:, 1], xerr=1.96 * uncertainty[:, 0], yerr=1.96 * uncertainty[:, 1],fmt='*', ecolor='r', c='r')
-    for i in vector_anno:
-        ax.annotate(vector_anno[i], ((vectors.values[i, 0]+0.01), (vectors.values[i, 1]+0.01)))
-
-
-    plt.errorbar(fitness[sx,0],fitness[sx,1], xerr=1.96*uncertainty[sx, 0], yerr=1.96*uncertainty[sx, 1],fmt='o', ecolor='g',c='g')
-    for i in range(len(assigned_vectors)):
-        if np.isin(i, sx):
-            ax.annotate(assigned_vectors[i], ((fitness[i, 0]-0.1), (fitness[i, 1]-0.1)))
-        else:
-            ax.annotate(assigned_vectors[i], ((fitness[i, 0]+0.01), (fitness[i, 1]+0.01)))
-    plt.show()
-    #fig.savefig('t_select.pdf',bbox_inches='tight')
-    ax.cla()
-    fig.clf()
-    print("plotted!")
-    
-    ######### for distribution plots
-    """ 
-    fig = plt.figure(1, figsize=(6, 6))
-    fig.set_size_inches(5, 5)
-    ax = fig.add_subplot(111)
-    plt.xlim(-0.02, 1.1)
-    plt.ylim(-0.02, 1.1)
-    vector_anno = np.arange(len(vectors.values))
-    viridis = cm.get_cmap('viridis',len(vectors.values[:,0]))
-    samples = pwrong.f_samples.tolist()
-    samplesx = samples[0][0]
-    samplesy = samples[0][1]
-    #samplesx = samples[0][0] + samples[1][0]
-    #samplesy = samples[0][1] + samples[1][1]
-    colour = np.argmax(cosine, axis=1)
-    coloursamples = colour.tolist()[0]
-    #coloursamples = colour.tolist()[0] + colour.tolist()[1]
-    colourvectors = list(range(0,len(vectors.values[:,0])))
-    #colourvectors=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
-    [plt.arrow(0,0,dx, dy, color=viridis.colors[c],length_includes_head=True,
-          head_width=0.02, head_length=0.04) for ((dx,dy),c) in zip(vectors.values, colourvectors)]
-    for i in range(len(assigned_vectors)-1):
-        ax.annotate(assigned_vectors[i], ((translated_fitness[i, 0]+0.08), (translated_fitness[i, 1]+0.03)))
-    for i in vector_anno:
-        ax.annotate(vector_anno[i], ((vectors.values[i, 0]+0.01), (vectors.values[i, 1]+0.01)))
-    ax.set_xlabel('$f_1$')
-    ax.set_ylabel('$f_2$')
-    plt.scatter(samplesx, samplesy, c=viridis.colors[coloursamples], s=0.2)
-    plt.scatter(translated_fitness[0][0], translated_fitness[0][1], c='r', s=10, marker='*')
-    ellipse = Ellipse(xy=(translated_fitness[0][0], translated_fitness[0][1]), width=uncertainty[0][0] * 1.96 * 2,
-                      height=uncertainty[0][1] * 1.96 * 2,
-                      edgecolor='r', fc='None', lw=1)
-    ax.add_patch(ellipse)
-    plt.show()
-    print((colour[0, :] == 3).sum())
-    print((colour[0, :] == 2).sum())
-    #print(selection)
-    #fig.savefig('t1.pdf')
+class Prob_APD_select_v3(SelectionBase):
+    """The selection operator for the RVEA algorithm. Read the following paper for more
+        details.
+        R. Cheng, Y. Jin, M. Olhofer and B. Sendhoff, A Reference Vector Guided
+        Evolutionary Algorithm for Many-objective Optimization, IEEE Transactions on
+        Evolutionary Computation, 2016
+    Parameters
+    ----------
+    pop : Population
+        The population instance
+    time_penalty_function : Callable
+        A function that returns the time component in the penalty function.
+    alpha : float, optional
+        The RVEA alpha parameter, by default 2
     """
+
+    def __init__(
+        self, pop: Population, number_of_vectors, number_of_objectives, time_penalty_function: Callable, alpha: float = 2
+    ):
+        self.time_penalty_function = time_penalty_function
+        self.alpha = alpha
+        self.n_of_objectives = pop.problem.n_of_objectives
+        self.vectors = ReferenceVectors(
+            number_of_vectors=number_of_vectors,
+            number_of_objectives=number_of_objectives,
+        )
+
+    def do(self, pop: Population, vectors: ReferenceVectors) -> List[int]:
+
+
+        #def Prob_APD_select_v3(
+        #    fitness: list,
+        #    uncertainty: list,
+        #    vectors: "ReferenceVectors",
+        #    penalty_factor: float,
+        #    ideal: list = None,
+        #):
+        fitness = pop.fitness
+        uncertainty = pop.uncertainity
+        penalty_factor = self._partial_penalty_factor()
+        refV = vectors.neighbouring_angles_current
+        fmin = np.amin(fitness, axis=0)
+        translated_fitness = fitness - fmin
+        pwrong = Probability_wrong(mean_values=translated_fitness, stddev_values=uncertainty, n_samples=1000)
+        pwrong.vect_sample_f()
+
+        fitness_norm = np.linalg.norm(pwrong.f_samples, axis=1)
+        fitness_norm = np.repeat(np.reshape(fitness_norm, (len(fitness), 1, pwrong.n_samples)), len(fitness[0, :]), axis=1)
+
+        normalized_fitness = np.divide(pwrong.f_samples, fitness_norm)  # Checked, works.
+
+
+        #Find cosine angles for all the samples
+        cosine = np.tensordot(normalized_fitness, np.transpose(vectors.values), axes=([1], [0]))
+        cosine = np.transpose(cosine,(0,2,1))
+
+        if cosine[np.where(cosine > 1)].size:
+            cosine[np.where(cosine > 1)] = 1
+        if cosine[np.where(cosine < 0)].size:
+            cosine[np.where(cosine < 0)] = 0
+        # Calculation of angles between reference vectors and solutions
+        theta = np.arccos(cosine)
+        # Reference vector asub_population_indexssignment
+        #pwrong.compute_pdf(cosine)
+        # Compute rank of cos theta (to be vectorized)
+        rank_cosine = np.mean(cosine,axis=2)
+        assigned_vectors = np.argmax(rank_cosine, axis=1)
+        selection = np.array([], dtype=int)
+
+        vector_selection = None
+
+        for i in range(0, len(vectors.values)):
+            sub_population_index = np.atleast_1d(
+                np.squeeze(np.where(assigned_vectors == i))
+            )
+            sub_population_fitness = pwrong.f_samples[sub_population_index]
+
+            if len(sub_population_fitness > 0):
+                # APD Calculation
+                angles = theta[sub_population_index, i]
+                angles = np.divide(angles, refV[i])  # This is correct.
+                # You have done this calculation before. Check with fitness_norm
+                # Remove this horrible line
+                sub_pop_fitness_magnitude = np.sqrt(
+                    np.sum(np.power(sub_population_fitness, 2), axis=1)
+                )
+                sub_popfm = np.reshape(sub_pop_fitness_magnitude, (1, len(sub_pop_fitness_magnitude[:,0]), pwrong.n_samples))
+                angles = np.reshape(angles,(1,len(angles),pwrong.n_samples))
+
+
+                #### Overall Mean/Median of apd
+                apd = np.multiply(
+                    sub_popfm,
+                    (1 + np.dot(penalty_factor, angles))
+                )
+                rank_apd = np.mean(apd, axis=2)
+                minidx = np.where(rank_apd[0] == np.nanmin(rank_apd[0]))
+
+                if np.isnan(apd).all():
+                    continue
+                selx = sub_population_index[minidx]
+                if selection.shape[0] == 0:
+                    selection = np.hstack((selection, np.transpose(selx[0])))
+                    vector_selection = np.asarray(i)
+                else:
+                    selection = np.vstack((selection, np.transpose(selx[0])))
+                    vector_selection = np.hstack((vector_selection, i))
+
+        if selection.shape[0] == 1:
+            print("Only one individual!!")
+            rand_select = np.random.randint(len(fitness), size=1)
+            selection = np.vstack((selection, np.transpose(rand_select[0])))
+        print("Selection:",selection.shape)
+        return selection.squeeze()
+
+    def _partial_penalty_factor(self) -> float:
+        """Calculate and return the partial penalty factor for APD calculation.
+            This calculation does not include the angle related terms, hence the name.
+            If the calculated penalty is outside [0, 1], it will round it up/down to 0/1
+        Returns
+        -------
+        float
+            The partial penalty value
+        """
+        penalty = ((self.time_penalty_function()) ** self.alpha) * self.n_of_objectives
+        if penalty < 0:
+            penalty = 0
+        if penalty > 1:
+            penalty = 1
+        return penalty
+
+
+    def adapt_RVs(self, fitness: np.ndarray) -> None:
+        self.vectors.adapt(fitness)
+        self.vectors.neighbouring_angles()
+        #vectors = self.vectors
+
+
+
