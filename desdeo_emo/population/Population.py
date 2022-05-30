@@ -111,6 +111,13 @@ class Population(BasePopulation):
         super().__init__(problem, pop_size)
         self.lower_limits = self.problem.get_variable_lower_bounds()
         self.upper_limits = self.problem.get_variable_upper_bounds()
+
+        # from atanus code
+        self.individuals_archive = {}
+        self.objectives_archive = {}
+        self.uncertainty_archive = {}
+        self.gen_count = 1
+
         if pop_params is None:
             design = "LHSDesign"
         if pop_params is not None:
@@ -149,6 +156,15 @@ class Population(BasePopulation):
         fitness = results.fitness
         constraints = results.constraints
         uncertainity = results.uncertainity
+
+        # from atanus code
+        import copy
+        self.individuals_archive[str(self.gen_count)] = copy.deepcopy(offsprings)
+        self.objectives_archive[str(self.gen_count)] = copy.deepcopy(objectives)
+        self.uncertainty_archive[str(self.gen_count)] = copy.deepcopy(uncertainity)
+        self.gen_count += 1
+
+
         if self.individuals is None:
             self.individuals = offsprings
             self.objectives = objectives

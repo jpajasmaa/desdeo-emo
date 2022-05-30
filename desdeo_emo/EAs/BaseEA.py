@@ -4,6 +4,7 @@ import pandas as pd
 from desdeo_emo.population.Population import Population
 from desdeo_emo.selection.SelectionBase import SelectionBase
 
+from desdeo_emo.utilities.ReferenceVectors import ReferenceVectors
 from desdeo_problem import MOProblem, DataProblem
 from desdeo_emo.problem import IOPISProblem
 from desdeo_tools.interaction import SimplePlotRequest
@@ -346,12 +347,14 @@ class BaseDecompositionEA(BaseEA):
             #  Population should be compatible.
             self.population = initial_population  # TODO put checks here.
             num_fitnesses = self.population.problem.n_of_fitnesses
+            num_objectives = self.population.problem.n_of_objectives
             if population_size is None and lattice_resolution is None:
                 population_size = self.population.pop_size
         else:
             if problem is None:
                 raise eaError("Provide one of initial_population or problem.")
             num_fitnesses = problem.n_of_fitnesses
+            num_objectives = problem.n_of_objectives
             if population_size is None:
                 if lattice_resolution is None:
                     lattice_res_options = [49, 13, 7, 5, 4, 3, 3, 3, 3]
@@ -369,7 +372,7 @@ class BaseDecompositionEA(BaseEA):
                 problem, population_size, population_params, use_surrogates
             )
             self._function_evaluation_count += population_size
-        # self.reference_vectors = ReferenceVectors(lattice_resolution, num_fitnesses)
+        self.reference_vectors = ReferenceVectors(lattice_resolution, num_fitnesses,num_objectives)
         # print("Using BaseDecompositionEA init")
 
     def _next_gen(self):
@@ -401,7 +404,7 @@ class BaseDecompositionEA(BaseEA):
         list
             List of indices of individuals to be selected.
         """
-        return self.selection_operator.do(self.population)
+        return self.selection_operator.do(self.population, self.reference_vectors)
 
     def request_plot(self) -> SimplePlotRequest:
         dimensions_data = pd.DataFrame(

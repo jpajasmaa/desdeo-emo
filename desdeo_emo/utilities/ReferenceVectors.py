@@ -170,7 +170,7 @@ class ReferenceVectors:
         self.vector_type = vector_type
         self.values = []
         self.values_planar = []
-        self.ref_point = [1] * number_of_objectives if ref_point is None else ref_point
+        self.ref_point = [1] * number_of_objectives # if ref_point is None else ref_point
         self._create(creation_type)
         self.initial_values = np.copy(self.values)
         self.initial_values_planar = np.copy(self.values_planar)

@@ -102,6 +102,8 @@ class InteractiveDecompositionSelectionBase(SelectionBase):
     def adapt_RVs(self, fitness: np.ndarray) -> None:
         self.vectors.adapt(fitness)
         self.vectors.neighbouring_angles()
+        #vectors = self.vectors
+        #return vectors
 
     def request_preferences(
         self, pop: Population

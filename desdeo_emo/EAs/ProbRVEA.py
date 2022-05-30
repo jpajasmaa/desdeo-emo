@@ -98,7 +98,11 @@ def remove_duplicate(
     return X_uniqe_indicies
 
 
-# mostly coping ikrvea_mm but no interactive part no reference point
+# this right now maybe does not work properly..
+# seems like doing stuff here only effects the problem archive.
+# which is prob not the same as probrvea archive.
+# yea i think so.
+# so still need to combine the archives or no point using this. Disabled it for now.
 def rvea_mm(
     #vectors: ReferenceVectors,
     individuals: np.ndarray,
@@ -139,10 +143,8 @@ def rvea_mm(
     # just evaluate all for now
     problem.evaluate(non_duplicate_dv, use_surrogate=False)[0]
 
-
-    
     # offline 
-    #problem.evaluate(non_duplicate_dv, use_surrogate=True)[0]
+    # problem.evaluate(non_duplicate_dv, use_surrogate=True)[0]
         # Selecting solutions with lowest ASF values
 
     # online, update maxEI_index,solutions
@@ -415,6 +417,7 @@ class ProbRVEA(RVEA):
         #(-0.3829086159722088, 1.391068156873832)
 
         #selection_operator = Prob_APD_select_v3(self.population, num_of_fit, num_of_obj, self.time_penalty_function, alpha)
+
         # 9.2, 62
         #MINMAXES
         # : (-0.36064886128615825, 1.5298248022559235)
@@ -428,14 +431,14 @@ class ProbRVEA(RVEA):
     def iterate(self):
         super().iterate()
         #print(self.reference_vectors)
-        updated_problem = rvea_mm(
+        #updated_problem = rvea_mm(
         #self.reference_vectors,
-        self.population.individuals,
-        self.population.objectives,
-        self.population.uncertainity,
-        self.population.problem)
+        #self.population.individuals,
+        #self.population.objectives,
+        #self.population.uncertainity,
+        #self.population.problem)
         #self.number_of_update)
-        self.population.problem = updated_problem
+        #self.population.problem = updated_problem
 
 
     def _next_gen(self):
@@ -469,7 +472,7 @@ if __name__=="__main__":
         pass
     import warnings
     warnings.warn = warn
-    prr = "dtlz1"
+    prr = "dtlz4"
 
     def obj_function1(x):
 
@@ -522,7 +525,6 @@ if __name__=="__main__":
     problem = ExperimentalProblem(data = datapd, objective_names=obj_names, variable_names=var_names,\
          uncertainity_names=unc_names, evaluators = [obj_function1, obj_function2, obj_function3])
     problem.train(models=SurrogateKriging)
-    u = 10 #number of solutions that we use to update surrogates in each iteration
     evolver = ProbRVEA(
                 problem, interact=False, n_iterations=10, n_gen_per_iter = 100,\
                      lattice_resolution=10, use_surrogates=True,  population_size= 109, total_function_evaluations=150)#, number_of_update=u)
