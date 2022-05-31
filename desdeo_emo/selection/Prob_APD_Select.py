@@ -136,22 +136,11 @@ class Prob_APD_select(InteractiveDecompositionSelectionBase):
         fitness_norm = np.repeat(np.reshape(fitness_norm, (len(fitness), 1, pwrong.n_samples)), len(fitness[0, :]), axis=1)
 
         normalized_fitness = np.divide(pwrong.f_samples, fitness_norm)  # Checked, works.
-        #print("norm fit", normalized_fitness.shape)
-
-
-        # TODO:
-        # now runs but only one individual
-        # could be bc EI not implemented
-        #but could be also bc we use x,y,z dim matrices in original code and im just dropping the z, bc it kinda does not exist
-        # can try adding it with just len(obj_archive), amount of individuals
 
         gc = str(pop.gen_count-1)
         ind_archive = pop.individuals_archive[gc]
         obj_archive = pop.objectives_archive[gc]
         uc_archive = pop.uncertainty_archive[gc]
-        #print(obj_archive['1'])
-        #print(gc)
-        #print(obj_archive[gc])
         # consider the exact function evaluations in the archive and assign them to subpopulations
         exact_f = obj_archive
         #print(exact_f.shape)
@@ -190,8 +179,6 @@ class Prob_APD_select(InteractiveDecompositionSelectionBase):
 
         # assign in subpopuls
         cosine_e = np.dot(normalized_exact, np.transpose(vectors.values))
-        #cosine = np.transpose(cosine,(0,2,1))
-        #print(cosine_e.shape)
 
         if cosine_e[np.where(cosine_e > 1)].size:
             cosine_e[np.where(cosine_e > 1)] = 1
@@ -207,8 +194,9 @@ class Prob_APD_select(InteractiveDecompositionSelectionBase):
         #print(rank_cosine_e.shape)
         assigned_vectors_e = np.argmax(rank_cosine_e, axis=1)
 
-
         vector_selection = None
+
+        refV[refV == 0] = np.finfo(float).eps
 
         for i in range(0, len(vectors.values)):
             sub_population_index = np.atleast_1d(
@@ -221,20 +209,17 @@ class Prob_APD_select(InteractiveDecompositionSelectionBase):
                 np.squeeze(np.where(assigned_vectors_e == i))
             )
             #print(sub_population_index, exact_sub_population_index)
+            #print(pwrong.f_samples.shape)
+            #print(exact_f.shape)
             exact_sub_population_fitness = exact_f[exact_sub_population_index]
-            uc_ex = uc_archive[exact_sub_population_index]
-
-
+            #print(exact_sub_population_fitness.shape)
             # ^ this very often empty
+            #uc_ex = uc_archive[exact_sub_population_index]
 
-            #print(exact_sub_population_fitness.shape) #[[xx,yy,zz]], (1,3) shape
-            #print(exact_sub_population_fitness)
-
-            #input()
             minidx = None
 
             if len(sub_population_fitness > 0):
-                print("there are subpop members")
+                #print("there are subpop members")
                 # APD Calculation
                 angles = theta[sub_population_index, i]
                 angles = np.divide(angles, refV[i])  # This is correct.
@@ -244,7 +229,7 @@ class Prob_APD_select(InteractiveDecompositionSelectionBase):
                 sub_pop_fitness_magnitude = np.sqrt(
                     np.sum(np.power(sub_population_fitness, 2), axis=1)
                 )
-                #print(sub_pop_fitness_magnitude.shape)
+                #print("mag",sub_pop_fitness_magnitude.shape)
                 sub_popfm = np.reshape(sub_pop_fitness_magnitude, (1, len(sub_pop_fitness_magnitude[:,0]), pwrong.n_samples))
                 angles = np.reshape(angles,(1,len(angles),pwrong.n_samples))
 
@@ -253,20 +238,9 @@ class Prob_APD_select(InteractiveDecompositionSelectionBase):
                     (1 + np.dot(penalty_factor, angles))
                 )
 
-                safe_pick = np.mean(apd, axis=2)
-                safeidx = np.where(safe_pick[0] == np.nanmin(safe_pick[0]))
-                minidx = safeidx
-                selx = sub_population_index[minidx]
-                if selection.shape[0] == 0:
-                    selection = np.hstack((selection, np.transpose(selx[0])))
-                    vector_selection = np.asarray(i)
-                else:
-                    selection = np.vstack((selection, np.transpose(selx[0])))
-                    vector_selection = np.hstack((vector_selection, i))
-
-                    # if exact sub pop has members
+                # if exact sub pop has members
                 if len(exact_sub_population_fitness > 0):
-                    print("there are exact subpop members")
+                    #print("there are exact subpop members")
                     # f* eg APD*_{exact,j} calculation
                     exact_angles = theta_e[exact_sub_population_index, i]
                     # uc_ex = theta_e[exact_sub_population_index, i] # this gets uc dims right but prob does not make any sense
@@ -276,6 +250,7 @@ class Prob_APD_select(InteractiveDecompositionSelectionBase):
                     exact_sub_pop_fitness_magnitude = np.sqrt(
                         np.sum(np.power(exact_sub_population_fitness, 2), axis=1)
                     )
+
                     #print(exact_sub_pop_fitness_magnitude.shape)
                     e_sub_popfm = np.reshape(exact_sub_pop_fitness_magnitude, (1, len(exact_sub_pop_fitness_magnitude)))
                     apd_exact = np.multiply(e_sub_popfm, (1 + np.dot(penalty_factor, exact_angles)))
@@ -286,34 +261,43 @@ class Prob_APD_select(InteractiveDecompositionSelectionBase):
                         for j in range(apd.shape[2]):
                             ux[i][j] = np.max((0., fmin - apd[:, i, j]))
 
-            
-                    #b = [(0,np.max(ux))]
-                    #print(b)
-                    #def opt_ei(x,ux):
-                    #    return -ux*x
-
-                    #from scipy.optimize import differential_evolution
-                    #res = differential_evolution(opt_ei, b, ux)
-                    #print(res.x, res.fun)
-                    #input()
-
-
                     ux = ux.reshape((1,sub_popfm.shape[1],1000))
                     impromean = np.mean(ux, axis=2) # optimize instead of this?
                     impromax = np.max(ux, axis=2) # optimize instead of this?
-                    print(impromean, impromax)
+                    #print(impromean, impromax)
                     rank_apd = impromax
                     #rank_apd = impromean
                     #print("eapd shape", rank_apd.shape)
 
                     minidx = np.where(rank_apd[0] == np.nanmax(rank_apd[0]))[0]
-                    #exact_minidx = np.where(rank_apd[0,:] == np.nanmin(rank_apd[0,:]))[0][0]
-                    print("min IDXZ",minidx)
-                    # minidx = np.where(rank_apd[0] == np.nanmin(rank_apd[0]))
+                    #print("min IDXZ",minidx)
 
-                    # now inside exact
-                    #if np.isnan(apd).all():
-                    #    continue
+                    # only sub_pop_indexes have for all samples
+                    selx = sub_population_index[minidx]
+                    if selection.shape[0] == 0:
+                        selection = np.hstack((selection, np.transpose(selx[0])))
+                        vector_selection = np.asarray(i)
+                    else:
+                        selection = np.vstack((selection, np.transpose(selx[0])))
+                        vector_selection = np.hstack((vector_selection, i))
+
+
+                # fmin from samples when we dont have exact apd
+                fmin = np.amax(apd)
+                ux = np.zeros((sub_popfm.shape[1],1000))
+                for i in range(apd.shape[1]):
+                    for j in range(apd.shape[2]):
+                        ux[i][j] = np.max((0., fmin - apd[:, i, j]))
+
+                ux = ux.reshape((1,sub_popfm.shape[1],1000))
+                #safe_pick = np.max(ux, axis=2)
+                safe_pick = np.mean(ux, axis=2)
+                #safe_pick = np.mean(apd, axis=2)
+                #print("ss",safe_pick)
+                safeidx = np.where(safe_pick[0] == np.nanmax(safe_pick[0]))
+                # only use mean if no other found
+                if minidx is None:
+                    minidx = safeidx
                     selx = sub_population_index[minidx]
                     if selection.shape[0] == 0:
                         selection = np.hstack((selection, np.transpose(selx[0])))
@@ -437,6 +421,7 @@ class Prob_APD_select_v3(SelectionBase):
         selection = np.array([], dtype=int)
 
         vector_selection = None
+        refV[refV == 0] = np.finfo(float).eps
 
         for i in range(0, len(vectors.values)):
             sub_population_index = np.atleast_1d(

@@ -138,8 +138,8 @@ def rvea_mm(
         
     # can try to use ExperimentalProblems archive, assuming it works properly for now.
     # TODO: make sure prob archive gets updated here with exact evals
+    print("in model management")
 
-   
     # just evaluate all for now
     problem.evaluate(non_duplicate_dv, use_surrogate=False)[0]
 
@@ -154,7 +154,7 @@ def rvea_mm(
     problem.train(models=GaussianProcessRegressor,\
          model_parameters={'kernel': Matern(nu=1.5)}) 
 
-    return problem
+    return problem, non_duplicate_dv, non_duplicate_obj, non_duplicate_unc
 
 class RVEA(BaseDecompositionEA):
     """The python version reference vector guided evolutionary algorithm.
@@ -428,6 +428,21 @@ class ProbRVEA(RVEA):
         self.selection_operator = selection_operator
 
 
+    def post_iteration(self):
+        print("running post iter")
+        updated_problem, inds, objs, unc = rvea_mm(
+        #self.reference_vectors,
+        self.population.individuals,
+        self.population.objectives,
+        self.population.uncertainity,
+        self.population.problem)
+        #self.number_of_update)
+        self.population.problem = updated_problem
+        self.population.individuals = inds
+        self.population.objectives = objs
+        self.population.uncertainity = unc
+
+
     def iterate(self):
         super().iterate()
         #print(self.reference_vectors)
@@ -452,7 +467,7 @@ class ProbRVEA(RVEA):
         self._current_gen_count += 1
         self._gen_count_in_curr_iteration += 1
         if not self.use_surrogates:
-            self._function_evaluation_count += offspring.shape[0]      
+            self._function_evaluation_count += offspring.shape[0]
 
 
     def _prob_select(self) -> list:
@@ -472,7 +487,7 @@ if __name__=="__main__":
         pass
     import warnings
     warnings.warn = warn
-    prr = "dtlz4"
+    prr = "dtlz7"
 
     def obj_function1(x):
 
@@ -566,8 +581,8 @@ if __name__=="__main__":
     ref_dirs = get_reference_directions("das-dennis", 3, n_partitions=12)
     pf = p.pareto_front(ref_dirs)
 
-    hv_pf = hypervolume_indicator(pf, np.array([1.5,1.5,1.5]))
-    print("HV of pf front", hv_pf, len(pf))
+    #hv_pf = hypervolume_indicator(pf, np.array([1.5,1.5,1.5]))
+    #print("HV of pf front", hv_pf, len(pf))
 
 
     x = Best_solutions[:,0]
@@ -581,7 +596,7 @@ if __name__=="__main__":
 
     trace1 = go.Scatter3d(x=x, y=y, z=z, mode="markers",)
     trace2 = go.Scatter3d(x=xo, y=yo, z=zo, mode="markers",)
-    #trace2 = go.Scatter3d(x=[refpoint[0]], y=[refpoint[1]], z=[refpoint[2]], mode="markers")
-    trace3 = go.Mesh3d(x=pf[:,0], y=pf[:,1], z=pf[:,2])
-    fig = go.Figure(data = [trace1, trace2, trace3])
+    #trace3 = go.Scatter3d(x=[refpoint[0]], y=[refpoint[1]], z=[refpoint[2]], mode="markers")
+    #trace3 = go.Mesh3d(x=pf[:,0], y=pf[:,1], z=pf[:,2])
+    fig = go.Figure(data = [trace1, trace2])
     fig.show()
