@@ -262,7 +262,7 @@ class Prob_APD_select(InteractiveDecompositionSelectionBase):
                             ux[i][j] = np.max((0., fmin - apd[:, i, j]))
 
                     ux = ux.reshape((1,sub_popfm.shape[1],1000))
-                    impromean = np.mean(ux, axis=2) # optimize instead of this?
+                    #impromean = np.mean(ux, axis=2) # optimize instead of this?
                     impromax = np.max(ux, axis=2) # optimize instead of this?
                     #print(impromean, impromax)
                     rank_apd = impromax

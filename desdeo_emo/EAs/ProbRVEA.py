@@ -550,6 +550,7 @@ if __name__=="__main__":
 
     #evolver.end()
     print(evolver.total_function_evaluations)
+    print(evolver._function_evaluation_count)
     obj = evolver.population.objectives
     obj1minmax = (np.min(obj[:,0]), np.max(obj[:,0]))
     obj2minmax = (np.min(obj[:,1]), np.max(obj[:,1]))

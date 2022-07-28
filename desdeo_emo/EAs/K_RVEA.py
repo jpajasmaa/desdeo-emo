@@ -2,12 +2,9 @@ from typing import Dict, Union
 
 from desdeo_emo.EAs import RVEA
 from desdeo_emo.population.Population import Population
-from desdeo_emo.utilities.model_management import ikrvea_mm
 # from desdeo_emo.selection.APD_Select import APD_Select
-from desdeo_emo.selection.APD_Select_constraints import APD_Select
-from desdeo_emo.selection.oAPD import Optimistic_APD_Select
-from desdeo_emo.selection.robust_APD import robust_APD_Select
-from desdeo_problem import MOProblem
+# from desdeo_emo.selection.APD_Select_constraints import APD_Select
+from desdeo_problem import DataProblem, MOProblem
 from numpy.core.numeric import indices
 from numpy.lib.arraysetops import unique
 from pandas.core.frame import DataFrame
@@ -20,16 +17,50 @@ from desdeo_problem.surrogatemodels.SurrogateModels import GaussianProcessRegres
 from sklearn.gaussian_process.kernels import DotProduct,\
     WhiteKernel, RBF, Matern, ConstantKernel
 from desdeo_problem import MOProblem
-
+from desdeo_emo.utilities.ReferenceVectors import ReferenceVectors
 from desdeo_problem import ExperimentalProblem
 import sys 
 import numpy as np
 import pandas as pd
 
+from sklearn.cluster import KMeans
+
 from sklearn.gaussian_process.kernels import Matern
 from pymoo.factory import get_problem, get_reference_directions
 import copy
-from desdeo_tools.scalarization.ASF import SimpleASF
+
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
+from desdeo_problem.surrogatemodels.SurrogateModels import BaseRegressor, ModelError
+
+class SurrogateKriging(BaseRegressor):
+    def __init__(self):
+        self.X: np.ndarray = None
+        self.y: np.ndarray = None
+        self.m = None
+
+    def fit(self, X, y):
+        if isinstance(X, (pd.DataFrame, pd.Series)):
+            X = X.values
+        if isinstance(y, (pd.DataFrame, pd.Series)):
+            y = y.values.reshape(-1, 1)
+
+        # Make a 2-D array if needed
+        y = np.atleast_1d(y)
+        if y.ndim == 1:
+            y = y.reshape(-1, 1)
+        kernel = C(1.0, (1e-3, 1e3)) * RBF(10, (1e-2, 1e2))
+        self.m = GaussianProcessRegressor(alpha=0, kernel=kernel, n_restarts_optimizer=9)
+        self.m.fit(X, y)
+
+    def predict(self, X):
+        #y_mean, y_stdev = np.asarray(self.m.predict(X, return_std=True)).reshape(1,-1)
+        y_mean, y_stdev = self.m.predict(X, return_std=True)
+        y_mean = (y_mean.reshape(1,-1))
+        y_stdev = (y_stdev.reshape(1,-1))
+        return (y_mean, y_stdev)
+
+
 
 
 #TODO: add @njit function here
@@ -54,7 +85,6 @@ def remove_duplicate(
     repeated_in_X = repeated_all_variables - len(archive_x)
     X_indicies = np.arange(len(X))
     X_uniqe_indicies = np.delete(X_indicies, repeated_in_X)
-
         
     return X_uniqe_indicies
 
@@ -62,6 +92,7 @@ def remove_duplicate(
 
 # mostly coping ikrvea_mm but no interactive part no reference point
 def krvea_mm(
+    #vectors: ReferenceVectors,
     individuals: np.ndarray,
     objectives: np.ndarray,
     uncertainity: np.ndarray,
@@ -92,25 +123,24 @@ def krvea_mm(
         non_duplicate_obj = objectives[nd]
         non_duplicate_unc = uncertainity[nd]
         
-    # Selecting solutions with lowest ASF values
-    #ref_point = np.array([0.5, 0.5, 0.5]) # only for testing
-    #asf_solutions = SimpleASF([1]*problem.n_of_objectives).__call__(non_duplicate_obj, ref_point)
 
-    #solutions = non_duplicate_obj
+    # select individuals for updating the surrogate, eg clustering.
+    #v_aa = vectors.number_of_vectors # find active vectors
+    #v_aa = 11
+    #clusters = np.min(u, v_aa) # get amount of clusters
+    #clusters = 10
+    #kmeans = KMeans(clusters).fit(non_duplicate_obj)
+    #center_idxs  = kmeans.predict(non_duplicate_obj)
+    #print(center_idxs)
 
-    #idx = np.argpartition(asf_solutions, 2*u)
-    #asf_unc = np.max(non_duplicate_unc [idx[0:2*u]], axis= 1)
-    # index of solutions with lowest Uncertainty
-    #lowest_unc_index = np.argpartition(asf_unc, u)[0:u]
-    # evaluating the solutions in asf_unc with lowest uncertainty. The archive will get update in problem.evaluate()
-    #problem.evaluate(non_duplicate_dv[lowest_unc_index], use_surrogate=False)[0]
-
-
+    # just evaluate all for now
+    problem.evaluate(non_duplicate_dv, use_surrogate=False)[0]
     # offline 
     #problem.evaluate(non_duplicate_dv, use_surrogate=True)[0]
-    
+        # Selecting solutions with lowest ASF values
+
     # online, update all solutions
-    problem.evaluate(non_duplicate_dv, use_surrogate=False)[0]
+    #problem.evaluate(non_duplicate_dv[lowest_unc_index], use_surrogate=False)[0]
 
     # update the model   
     problem.train(models=GaussianProcessRegressor,\
@@ -120,7 +150,7 @@ def krvea_mm(
 
 
 class K_RVEA(RVEA):
-    """The python version Interactive Kriging-assisted reference vector guieded evolutionary algorithm (IK-RVEA).
+    """The python version Kriging-assisted reference vector guieded evolutionary algorithm (K-RVEA).
     Most of the relevant code is contained in the super class. This class just assigns
     the APD selection operator, and the model management to BaseDecompositionEA.
     NOTE: The APD (from RVEA) function had to be slightly modified to accomodate for the fact that
@@ -218,7 +248,7 @@ class K_RVEA(RVEA):
             selection_type: str = None,
             #a_priori: bool = False,
             interact: bool = False,
-            use_surrogates: bool = False,
+            use_surrogates: bool = True,
             n_iterations: int = 10,
             n_gen_per_iter: int = 100,
             number_of_update: int = 10,
@@ -244,7 +274,9 @@ class K_RVEA(RVEA):
 
     def iterate(self):
         super().iterate()
+        #print(self.reference_vectors)
         updated_problem = krvea_mm(
+        #self.reference_vectors,
         self.population.individuals,
         self.population.objectives,
         self.population.uncertainity,
@@ -303,19 +335,19 @@ if __name__=="__main__":
         "F": "",
         "G": "",
         }
-    get_problem("dtlz2", 12)._evaluate(x, initial_obj)
+    get_problem("dtlz2", 10)._evaluate(x, initial_obj)
 
     data = np.hstack((x, initial_obj['F']))
     datapd = pd.DataFrame(data=data, columns=var_names+obj_names)
 
     problem = ExperimentalProblem(data = datapd, objective_names=obj_names, variable_names=var_names,\
          uncertainity_names=unc_names, evaluators = [obj_function1, obj_function2, obj_function3])
-    problem.train(models=GaussianProcessRegressor, model_parameters={'kernel': Matern(nu=1.5)})
+    problem.train(models=SurrogateKriging)
     u = 10 #number of solutions that we use to update surrogates in each iteration
     evolver = K_RVEA(
                 problem, interact=False, n_iterations=1, n_gen_per_iter = 50,\
                      lattice_resolution=10, use_surrogates= True, selection_type="mean",  population_size= 109, total_function_evaluations=150, number_of_update=u)
-    problem.train(models=GaussianProcessRegressor, model_parameters={'kernel': Matern(nu=1.5)})
+    #problem.train(models=GaussianProcessRegressor, model_parameters={'kernel': Matern(nu=1.5)})
 
     while evolver.continue_iteration():
         evolver.iterate()
